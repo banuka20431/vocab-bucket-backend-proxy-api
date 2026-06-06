@@ -118,8 +118,6 @@ app.post("/metadata", async (req, res) => {
       wordMetaData = new FallbackExtractor(fallbackResponseData).aggregate(
         primaryResponseMetadata,
       );
-
-      Log(`[INFO] Extracted metadata of fallback response:\n`, wordMetaData);
     }
   } else {
     errmsg = "[WARNING] Failed to fetch from fallback API";
