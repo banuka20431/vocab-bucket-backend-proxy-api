@@ -1,4 +1,4 @@
-export default class Extractor {
+export class Extractor {
   constructor(entry) {
     this.entry = entry;
     this.audioBase = process.env.API_AUDIO_URL;
@@ -56,7 +56,19 @@ export default class Extractor {
     return visEntry ? visEntry[1].map((ex) => this._clean(ex.t)) : [];
   }
 
+  isValid() {
+    return this.entry?.meta?.id !== undefined;
+  }
+
+  /**
+   * Combines all metadata for the entry into a single object
+   * @return {Object} Complete metadata object with spelling, pronunciation, category, definition, usage, audioURL, and timestamp
+   * @author banuka20431
+   */
   getMetaData() {
+    
+    if(!this.isValid()) return null;
+
     return {
       spelling: this.entry.meta.id.replace(/[^a-zA-Z \-']/g, ""),
       pronunciation: this.getPronunciation(),
@@ -67,6 +79,128 @@ export default class Extractor {
       },
       usage: this.getUsage(),
       audioURL: this.getAudioUrl(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+}
+
+export class FallbackExtractor {
+  constructor(entry) {
+    this.entry = Array.isArray(entry) ? entry[0] : entry;
+  }
+
+  getPronunciation() {
+    if (this.entry.phonetic) {
+      return this.entry.phonetic;
+    }
+
+    const phoneticObj = this.entry.phonetics?.find((p) => p.text);
+    return phoneticObj ? phoneticObj.text : "N/A";
+  }
+
+  getAudioUrl() {
+    const audioObj = this.entry.phonetics?.find(
+      (p) => p.audio && p.audio.length > 0,
+    );
+    return audioObj ? audioObj.audio : null;
+  }
+
+  getCategory() {
+    return this.entry.meanings?.[0]?.partOfSpeech || "N/A";
+  }
+
+  getShortDef() {
+    return (
+      this.entry.meanings?.[0]?.definitions?.[0]?.definition ||
+      "No definition available."
+    );
+  }
+
+  getFullDef() {
+    return this.getShortDef();
+  }
+
+  getUsage() {
+    const definitions = this.entry.meanings?.[0]?.definitions || [];
+
+    return definitions
+      .map((def) => def.example)
+      .filter((example) => example !== undefined && example !== null);
+  }
+
+  isValid() {
+    return this.entry?.word !== undefined;
+  }
+
+  /**
+   * Combines all metadata for the entry into a single object
+   * @return {Object} Complete metadata object with spelling, pronunciation, category, definition, usage, audioURL, and timestamp
+   * @author banuka20431
+   */
+  getMetaData() {
+    
+    if(!this.isValid()) return null;
+
+    return {
+      spelling: this.entry.word,
+      pronunciation: this.getPronunciation(),
+      category: this.getCategory(),
+      definition: {
+        full: this.getFullDef(),
+        short: this.getShortDef(),
+      },
+      usage: this.getUsage(),
+      audioURL: this.getAudioUrl(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Merges primary API response with fallback API metadata, preferring non-null primary values
+   * @param {Object} primaryResponse - The response from the primary API
+   * @return {Object} Merged metadata object with fallback values filling gaps
+   * @author vocab-bucket
+   */
+  aggregate(primaryResponse) {
+    const metadata = this.getMetaData();
+
+    if (!metadata) return primaryResponse;
+    if (!primaryResponse) return metadata;
+
+    return {
+      spelling: primaryResponse.spelling || metadata.spelling,
+
+      pronunciation:
+        primaryResponse.pronunciation && primaryResponse.pronunciation !== "N/A"
+          ? primaryResponse.pronunciation
+          : metadata.pronunciation,
+
+      category:
+        primaryResponse.category && primaryResponse.category !== "N/A"
+          ? primaryResponse.category
+          : metadata.category,
+
+      definition: {
+        full:
+          primaryResponse.definition?.full &&
+          !primaryResponse.definition.full.includes("No short definition")
+            ? primaryResponse.definition.full
+            : metadata.definition?.full,
+
+        short:
+          primaryResponse.definition?.short &&
+          !primaryResponse.definition.short.includes("No short definition")
+            ? primaryResponse.definition.short
+            : metadata.definition?.short,
+      },
+
+      usage:
+        primaryResponse.usage && primaryResponse.usage.length > 0
+          ? [...primaryResponse.usage, ...metadata.usage]
+          : metadata.usage,
+
+      audioURL: primaryResponse.audioURL || metadata.audioURL,
+
       timestamp: new Date().toISOString(),
     };
   }

@@ -19,6 +19,7 @@ export async function fetchWordFromCache(word) {
   }
 }
 
+
 export async function trackWord(wordMetadata, requestedWord) {
   try {
     await wordTracker.setOrIncrementWordCount(requestedWord);
