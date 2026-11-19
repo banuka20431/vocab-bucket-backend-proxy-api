@@ -2,13 +2,13 @@
   "name": "vocab-bucket-backend",
   "version": "1.0.0",
   "description": "",
-  "homepage": "https://github.com/banuka20431/vocab-bucket-backend#readme",
+  "homepage": "https://github.com/banuka20431/vocab-bucket-backend-proxy-api#readme",
   "bugs": {
-    "url": "https://github.com/banuka20431/vocab-bucket-backend/issues"
+    "url": "https://github.com/banuka20431/vocab-bucket-backend-proxy-api/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/banuka20431/vocab-bucket-backend.git"
+    "url": "git+https://github.com/banuka20431/vocab-bucket-backend-proxy-api.git"
   },
   "license": "ISC",
   "author": "banuka20431",
@@ -19,13 +19,13 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.1.42",
-    "@types/node": "^25.7.0"
+    "@types/node": "^25.7.0",
+    "nodemon": "^3.1.0"
   },
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "nodemon": "^3.1.0",
     "redis": "^5.12.1"
   },
   "type": "module"
