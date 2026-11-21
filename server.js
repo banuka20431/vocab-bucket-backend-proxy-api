@@ -9,7 +9,14 @@ const PRIMARY_API_URL = (
   process.env.API_URL ||
   "https://www.dictionaryapi.com/api/v3/references/learners/json"
 ).replace(/\/+$/, "");
-const FALLBACK_API_URL = "https://api.dictionaryapi.dev/api/v2/entries/en";
+const FALLBACK_API_URL =
+  "https://en.wiktionary.org/api/rest_v1/page/definition";
+const WIKTIONARY_HEADERS = {
+  Accept: "application/json",
+  "User-Agent":
+    "VocabBucketProxy/1.0 (https://github.com/banuka20431/vocab-bucket-backend-proxy-api)",
+};
+
 const UPSTREAM_TIMEOUT_MS = 5000;
 const WORD_PATTERN = /^[\p{L}][\p{L}\s'-]{0,63}$/u;
 
@@ -84,7 +91,9 @@ app.post("/metadata", async (req, res) => {
 
   const requestedWord = rawWord.trim().toLowerCase().replace(/\s+/g, " ");
   if (!WORD_PATTERN.test(requestedWord)) {
-    return res.status(400).json("[ERROR] Invalid request: invalid word format!");
+    return res
+      .status(400)
+      .json("[ERROR] Invalid request: invalid word format!");
   }
 
   Log(`[INFO] Requested word: "${requestedWord}"`);
@@ -109,6 +118,7 @@ app.post("/metadata", async (req, res) => {
     : Promise.reject(new Error("API_KEY is not configured"));
 
   const fallbackPromise = fetch(`${FALLBACK_API_URL}/${encodedWord}`, {
+    headers: WIKTIONARY_HEADERS,
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
 
@@ -136,7 +146,9 @@ app.post("/metadata", async (req, res) => {
         Log("[WARNING] Primary API returned no valid dictionary entries");
       }
     } else {
-      Log(`[WARNING] Primary API returned HTTP ${primaryResponse.value.status}`);
+      Log(
+        `[WARNING] Primary API returned HTTP ${primaryResponse.value.status}`,
+      );
     }
   } else {
     Log(
@@ -155,12 +167,13 @@ app.post("/metadata", async (req, res) => {
         "fallback API",
       );
 
-      if (isDataValid(fallbackResponseData)) {
-        wordMetaData = new FallbackExtractor(fallbackResponseData).aggregate(
-          primaryResponseMetadata,
-        );
+      if (isWiktionaryValid(fallbackResponseData)) {
+        wordMetaData = new FallbackExtractor(
+          fallbackResponseData,
+          requestedWord,
+        ).aggregate(primaryResponseMetadata);
       } else {
-        Log("[WARNING] Fallback API returned no valid dictionary entries");
+        Log("[WARNING] Fallback API returned no valid English entries");
       }
     } else {
       Log(
@@ -252,6 +265,10 @@ async function safeParseJson(response, label) {
 
 function isDataValid(data) {
   return Array.isArray(data) && data.length > 0;
+}
+
+function isWiktionaryValid(data) {
+  return Boolean(data && Array.isArray(data.en) && data.en.length > 0);
 }
 
 function Log(message, ...args) {

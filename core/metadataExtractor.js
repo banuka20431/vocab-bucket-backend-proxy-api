@@ -98,35 +98,61 @@ export class Extractor {
 }
 
 export class FallbackExtractor {
-  constructor(entry) {
-    this.entry = Array.isArray(entry) ? entry[0] : entry;
+  constructor(payload, word = "") {
+    this.word = word;
+    this.entries = Array.isArray(payload?.en) ? payload.en : [];
+    this.primaryEntry =
+      this.entries.find(
+        (entry) =>
+          Array.isArray(entry?.definitions) && entry.definitions.length > 0,
+      ) ||
+      this.entries[0] ||
+      null;
+  }
+
+  _stripHtml(html) {
+    if (typeof html !== "string" || !html) return "";
+
+    return html
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
+        String.fromCodePoint(Number.parseInt(hex, 16)),
+      )
+      .replace(/&#(\d+);/g, (_, dec) =>
+        String.fromCodePoint(Number.parseInt(dec, 10)),
+      )
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   getPronunciation() {
-    if (this.entry.phonetic) {
-      return this.entry.phonetic;
-    }
-
-    const phoneticObj = this.entry.phonetics?.find((p) => p?.text);
-    return phoneticObj ? phoneticObj.text : "N/A";
+    return "N/A";
   }
 
   getAudioUrl() {
-    const audioObj = this.entry.phonetics?.find(
-      (p) => typeof p?.audio === "string" && p.audio.length > 0,
-    );
-    return audioObj ? audioObj.audio : null;
+    return null;
   }
 
   getCategory() {
-    return this.entry.meanings?.[0]?.partOfSpeech || "N/A";
+    const pos = this.primaryEntry?.partOfSpeech;
+    return typeof pos === "string" && pos.trim()
+      ? pos.trim().toLowerCase()
+      : "N/A";
   }
 
   getShortDef() {
-    return (
-      this.entry.meanings?.[0]?.definitions?.[0]?.definition ||
-      "No definition available."
-    );
+    const defs = this.primaryEntry?.definitions || [];
+    for (const item of defs) {
+      const cleaned = this._stripHtml(item?.definition);
+      if (cleaned) return cleaned;
+    }
+    return "No definition available.";
   }
 
   getFullDef() {
@@ -134,31 +160,41 @@ export class FallbackExtractor {
   }
 
   getUsage() {
-    const definitions = this.entry.meanings?.[0]?.definitions || [];
+    const defs = this.primaryEntry?.definitions || [];
+    const examples = [];
 
-    return definitions
-      .map((def) => def?.example)
-      .filter((example) => typeof example === "string" && example.length > 0);
+    for (const def of defs) {
+      if (Array.isArray(def?.parsedExamples)) {
+        for (const ex of def.parsedExamples) {
+          const cleaned = this._stripHtml(ex?.example);
+          if (cleaned) examples.push(cleaned);
+        }
+      } else if (Array.isArray(def?.examples)) {
+        for (const ex of def.examples) {
+          const cleaned = this._stripHtml(ex);
+          if (cleaned) examples.push(cleaned);
+        }
+      }
+    }
+
+    return [...new Set(examples)].slice(0, 5);
   }
 
   isValid() {
     return Boolean(
-      this.entry &&
-        typeof this.entry === "object" &&
-        typeof this.entry.word === "string" &&
-        this.entry.word.length > 0,
+      this.primaryEntry &&
+        Array.isArray(this.primaryEntry.definitions) &&
+        this.primaryEntry.definitions.some(
+          (item) => this._stripHtml(item?.definition).length > 0,
+        ),
     );
   }
 
-  /**
-   * Combines all metadata for the entry into a single object
-   * @return {Object|null} Complete metadata object or null if invalid
-   */
   getMetaData() {
     if (!this.isValid()) return null;
 
     return {
-      spelling: this.entry.word,
+      spelling: this.word,
       pronunciation: this.getPronunciation(),
       category: this.getCategory(),
       definition: {
@@ -171,11 +207,6 @@ export class FallbackExtractor {
     };
   }
 
-  /**
-   * Merges primary API response with fallback API metadata, preferring non-null primary values
-   * @param {Object|null} primaryResponse - The response from the primary API
-   * @return {Object|null} Merged metadata object with fallback values filling gaps
-   */
   aggregate(primaryResponse) {
     const metadata = this.getMetaData();
 
