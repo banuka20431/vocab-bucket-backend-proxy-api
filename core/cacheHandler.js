@@ -1,8 +1,12 @@
 import wordTracker from "./redisClient.js";
 
+function getCacheHitThreshold() {
+  const parsed = Number.parseInt(process.env.CACHE_HIT_THRESHOLD, 10);
+  return Number.isNaN(parsed) || parsed < 1 ? 1 : parsed;
+}
+
 export async function fetchWordFromCache(word) {
-  if (!(await wordTracker.connect())) {
-    console.log(`[ERROR] WordTracker is not ready!`);
+  if (!wordTracker.isReady) {
     return null;
   }
 
@@ -14,28 +18,30 @@ export async function fetchWordFromCache(word) {
     }
     return null;
   } catch (err) {
-    console.log(`[ERROR] fetching from cache failed: ${err}`);
+    console.error(`[CACHE ERROR] Failed to read "${word}":`, err.message);
     return null;
   }
 }
 
-
 export async function trackWord(wordMetadata, requestedWord) {
+  if (!wordTracker.isReady) {
+    return;
+  }
+
   try {
-    await wordTracker.setOrIncrementWordCount(requestedWord);
-
-    const wordCount = await wordTracker.getWordCount(requestedWord);
-
-    const threshold = parseInt(process.env.CACHE_HIT_THRESHOLD) || 1;
+    const wordCount = await wordTracker.incrementWordCount(requestedWord);
+    const threshold = getCacheHitThreshold();
 
     if (wordCount >= threshold) {
       console.log(
-        `[PROMOTING] "${requestedWord}" hit ${wordCount} requests. Saving to cache.`,
+        `[PROMOTING] "${requestedWord}" hit ${wordCount} request(s). Saving to cache.`,
       );
       await wordTracker.cacheWordMetadata(wordMetadata, requestedWord);
     }
   } catch (err) {
-    console.log(`[ERROR] Init word tracking failed: ${err}`);
-    return null;
+    console.error(
+      `[CACHE ERROR] Failed to track/cache "${requestedWord}":`,
+      err.message,
+    );
   }
 }

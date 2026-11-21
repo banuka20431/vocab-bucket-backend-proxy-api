@@ -1,16 +1,16 @@
 export class Extractor {
   constructor(entry) {
     this.entry = entry;
-    this.audioBase = process.env.API_AUDIO_URL;
+    this.audioBase = process.env.API_AUDIO_URL?.trim() || "";
   }
 
-  // Helper to strip MW tags like {bc}, {it}, etc.
+  // Strip Merriam-Webster formatting tags like {bc}, {it}, etc.
   _clean(text) {
-    if (!text) return "";
+    if (typeof text !== "string" || !text) return "";
     return text.replace(/\{.*?\}/g, "").trim();
   }
 
-  // 1. How to pronounce (IPA)
+  // 1. Pronunciation (IPA)
   getPronunciation() {
     return this.entry.hwi?.prs?.[0]?.ipa || "N/A";
   }
@@ -18,14 +18,18 @@ export class Extractor {
   // 2. Audio clip URL
   getAudioUrl() {
     const audio = this.entry.hwi?.prs?.[0]?.sound?.audio;
-    if (!audio) return null;
+    if (!audio || !this.audioBase) return null;
 
     let subdir = audio.charAt(0);
     if (audio.startsWith("bix")) subdir = "bix";
     else if (audio.startsWith("gg")) subdir = "gg";
     else if (!/[a-zA-Z]/.test(subdir)) subdir = "number";
 
-    return `${this.audioBase}${subdir}/${audio}.mp3`;
+    const base = this.audioBase.endsWith("/")
+      ? this.audioBase
+      : `${this.audioBase}/`;
+
+    return `${base}${subdir}/${audio}.mp3`;
   }
 
   // 3. Category (Part of Speech)
@@ -40,37 +44,46 @@ export class Extractor {
     );
   }
 
-  // 5. Full Definition
-  // Note: Pulls the very first primary definition from the sense sequence
+  // 5. Full Definition (first primary definition from sense sequence)
   getFullDef() {
     const dt = this.entry.def?.[0]?.sseq?.[0]?.[0]?.[1]?.dt;
-    const textEntry = dt?.find((item) => item[0] === "text");
+    const textEntry = Array.isArray(dt)
+      ? dt.find((item) => item?.[0] === "text")
+      : null;
+
     return textEntry ? this._clean(textEntry[1]) : this.getShortDef();
   }
 
   // 6. Usage (Example sentences)
   getUsage() {
     const dt = this.entry.def?.[0]?.sseq?.[0]?.[0]?.[1]?.dt;
-    const visEntry = dt?.find((item) => item[0] === "vis");
-    // Returns an array of example strings
-    return visEntry ? visEntry[1].map((ex) => this._clean(ex.t)) : [];
+    const visEntry = Array.isArray(dt)
+      ? dt.find((item) => item?.[0] === "vis")
+      : null;
+
+    return Array.isArray(visEntry?.[1])
+      ? visEntry[1].map((ex) => this._clean(ex?.t)).filter(Boolean)
+      : [];
   }
 
   isValid() {
-    return this.entry?.meta?.id !== undefined;
+    return Boolean(
+      this.entry &&
+        typeof this.entry === "object" &&
+        typeof this.entry.meta?.id === "string" &&
+        this.entry.meta.id.length > 0,
+    );
   }
 
   /**
    * Combines all metadata for the entry into a single object
-   * @return {Object} Complete metadata object with spelling, pronunciation, category, definition, usage, audioURL, and timestamp
-   * @author banuka20431
+   * @return {Object|null} Complete metadata object or null if invalid
    */
   getMetaData() {
-    
-    if(!this.isValid()) return null;
+    if (!this.isValid()) return null;
 
     return {
-      spelling: this.entry.meta.id.replace(/[^a-zA-Z \-']/g, ""),
+      spelling: this.entry.meta.id.replace(/[^a-zA-Z \-']/g, "").trim(),
       pronunciation: this.getPronunciation(),
       category: this.getCategory(),
       definition: {
@@ -94,13 +107,13 @@ export class FallbackExtractor {
       return this.entry.phonetic;
     }
 
-    const phoneticObj = this.entry.phonetics?.find((p) => p.text);
+    const phoneticObj = this.entry.phonetics?.find((p) => p?.text);
     return phoneticObj ? phoneticObj.text : "N/A";
   }
 
   getAudioUrl() {
     const audioObj = this.entry.phonetics?.find(
-      (p) => p.audio && p.audio.length > 0,
+      (p) => typeof p?.audio === "string" && p.audio.length > 0,
     );
     return audioObj ? audioObj.audio : null;
   }
@@ -124,22 +137,25 @@ export class FallbackExtractor {
     const definitions = this.entry.meanings?.[0]?.definitions || [];
 
     return definitions
-      .map((def) => def.example)
-      .filter((example) => example !== undefined && example !== null);
+      .map((def) => def?.example)
+      .filter((example) => typeof example === "string" && example.length > 0);
   }
 
   isValid() {
-    return this.entry?.word !== undefined;
+    return Boolean(
+      this.entry &&
+        typeof this.entry === "object" &&
+        typeof this.entry.word === "string" &&
+        this.entry.word.length > 0,
+    );
   }
 
   /**
    * Combines all metadata for the entry into a single object
-   * @return {Object} Complete metadata object with spelling, pronunciation, category, definition, usage, audioURL, and timestamp
-   * @author banuka20431
+   * @return {Object|null} Complete metadata object or null if invalid
    */
   getMetaData() {
-    
-    if(!this.isValid()) return null;
+    if (!this.isValid()) return null;
 
     return {
       spelling: this.entry.word,
@@ -157,15 +173,18 @@ export class FallbackExtractor {
 
   /**
    * Merges primary API response with fallback API metadata, preferring non-null primary values
-   * @param {Object} primaryResponse - The response from the primary API
-   * @return {Object} Merged metadata object with fallback values filling gaps
-   * @author vocab-bucket
+   * @param {Object|null} primaryResponse - The response from the primary API
+   * @return {Object|null} Merged metadata object with fallback values filling gaps
    */
   aggregate(primaryResponse) {
     const metadata = this.getMetaData();
 
     if (!metadata) return primaryResponse;
     if (!primaryResponse) return metadata;
+
+    const mergedUsage = [
+      ...new Set([...(primaryResponse.usage || []), ...(metadata.usage || [])]),
+    ];
 
     return {
       spelling: primaryResponse.spelling || metadata.spelling,
@@ -194,13 +213,8 @@ export class FallbackExtractor {
             : metadata.definition?.short,
       },
 
-      usage:
-        primaryResponse.usage && primaryResponse.usage.length > 0
-          ? [...primaryResponse.usage, ...metadata.usage]
-          : metadata.usage,
-
+      usage: mergedUsage,
       audioURL: primaryResponse.audioURL || metadata.audioURL,
-
       timestamp: new Date().toISOString(),
     };
   }
